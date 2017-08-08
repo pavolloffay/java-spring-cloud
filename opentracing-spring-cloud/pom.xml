@@ -50,24 +50,32 @@
       <optional>true</optional>
     </dependency>
 
+
     <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-jms</artifactId>
+      <groupId>org.apache.activemq</groupId>
+      <artifactId>activemq-broker</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-artemis</artifactId>
+    </dependency>
+    <!-- https://mvnrepository.com/artifact/org.apache.activemq/artemis-server -->
+    <!--<dependency>-->
+      <!--<groupId>org.apache.activemq</groupId>-->
+      <!--<artifactId>artemis-server</artifactId>-->
+      <!--<version>2.0.0</version>-->
+    <!--</dependency>-->
+
+    <dependency>
+      <groupId>org.apache.activemq</groupId>
+      <artifactId>artemis-jms-server</artifactId>
+    </dependency>
+
+
     <dependency>
       <groupId>io.opentracing.contrib</groupId>
       <artifactId>opentracing-jms-spring</artifactId>
       <optional>true</optional>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.activemq</groupId>
-      <artifactId>artemis-server</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.activemq</groupId>
-      <artifactId>artemis-jms-client</artifactId>
-      <scope>test</scope>
     </dependency>
 
     <dependency>
