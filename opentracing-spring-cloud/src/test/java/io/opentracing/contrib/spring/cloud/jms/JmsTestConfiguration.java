@@ -1,26 +1,23 @@
 package io.opentracing.contrib.spring.cloud.jms;
 
-import java.util.HashSet;
 import java.util.logging.Logger;
 
 import javax.jms.ConnectionFactory;
 import javax.jms.Message;
 
-import org.apache.activemq.artemis.api.core.TransportConfiguration;
-import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
-import org.apache.activemq.artemis.core.remoting.impl.invm.InVMAcceptorFactory;
-import org.apache.activemq.artemis.core.remoting.impl.netty.NettyAcceptorFactory;
-import org.apache.activemq.artemis.core.server.ActiveMQServer;
-import org.apache.activemq.artemis.core.server.impl.ActiveMQServerImpl;
-import org.apache.activemq.artemis.jms.client.ActiveMQJMSConnectionFactory;
+import org.springframework.boot.autoconfigure.jms.DefaultJmsListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.annotation.EnableJms;
 import org.springframework.jms.annotation.JmsListener;
+import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.config.JmsListenerContainerFactory;
 
 /**
  * @author <a href="mailto:ales.justin@jboss.org">Ales Justin</a>
  */
 @Configuration
+@EnableJms
 public class JmsTestConfiguration {
   private static final Logger log = Logger.getLogger(JmsTestConfiguration.class.getName());
 
@@ -29,40 +26,14 @@ public class JmsTestConfiguration {
     return new MsgListener();
   }
 
-  @Bean(initMethod = "start", destroyMethod = "stop")
-  public Server server() {
-    return new Server();
-  }
-
   @Bean
-  public ConnectionFactory connectionFactory() {
-    return new ActiveMQJMSConnectionFactory("vm://0");
-  }
-
-  public static class Server {
-    private ActiveMQServer server;
-
-    public void start() throws Exception {
-      org.apache.activemq.artemis.core.config.Configuration configuration = new ConfigurationImpl();
-
-      HashSet<TransportConfiguration> transports = new HashSet<>();
-      transports.add(new TransportConfiguration(NettyAcceptorFactory.class.getName()));
-      transports.add(new TransportConfiguration(InVMAcceptorFactory.class.getName()));
-      configuration.setAcceptorConfigurations(transports);
-
-      configuration.setSecurityEnabled(false);
-
-      ActiveMQServer temp = new ActiveMQServerImpl(configuration);
-      temp.start();
-
-      server = temp;
-    }
-
-    public void stop() throws Exception {
-      if (server != null) {
-        server.stop();
-      }
-    }
+  public JmsListenerContainerFactory<?> myFactory(ConnectionFactory connectionFactory,
+                                                  DefaultJmsListenerContainerFactoryConfigurer configurer) {
+    DefaultJmsListenerContainerFactory factory = new DefaultJmsListenerContainerFactory();
+    // This provides all boot's default to this factory, including the message converter
+    configurer.configure(factory, connectionFactory);
+    // You could still override some of Boot's default if necessary.
+    return factory;
   }
 
   public static class MsgListener {
@@ -72,7 +43,7 @@ public class JmsTestConfiguration {
       return message;
     }
 
-    @JmsListener(destination = "fooQueue")
+    @JmsListener(destination = "fooQueue", containerFactory = "myFactory")
     public void processMessage(Message msg) throws Exception {
       log.info("Received msg: " + msg.toString());
       message = msg;

@@ -5,16 +5,11 @@ import static org.junit.Assert.assertEquals;
 
 import java.util.List;
 
-import io.opentracing.contrib.spring.cloud.MockTracingConfiguration;
-import io.opentracing.contrib.spring.cloud.TestUtils;
-import io.opentracing.mock.MockSpan;
-import io.opentracing.mock.MockTracer;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.embedded.LocalServerPort;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +17,11 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import io.opentracing.contrib.spring.cloud.MockTracingConfiguration;
+import io.opentracing.contrib.spring.cloud.TestUtils;
+import io.opentracing.mock.MockSpan;
+import io.opentracing.mock.MockTracer;
 
 /**
  * @author <a href="mailto:ales.justin@jboss.org">Ales Justin</a>
@@ -31,9 +31,6 @@ import org.springframework.web.bind.annotation.RestController;
   classes = {MockTracingConfiguration.class, JmsTestConfiguration.class, JmsTracingTest.MsgController.class})
 @RunWith(SpringJUnit4ClassRunner.class)
 public class JmsTracingTest {
-  @LocalServerPort
-  int port;
-
   @Autowired
   MockTracer tracer;
 
