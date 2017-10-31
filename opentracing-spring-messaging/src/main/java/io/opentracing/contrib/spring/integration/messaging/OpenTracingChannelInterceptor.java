@@ -76,17 +76,16 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     Tags.MESSAGE_BUS_DESTINATION.set(span, channelName);
 
     if (message.getHeaders()
-        .containsKey("messageSent")) { // TODO defined header name
+        .containsKey(Headers.MESSAGE_SENT_FROM_CLIENT)) {
       log.trace("Marking span with server received");
 
-      span.log("received"); // TODO define messages
+      span.log(Events.SERVER_RECEIVE);
       Tags.SPAN_KIND.set(span, Tags.SPAN_KIND_CONSUMER);
     } else {
       log.trace("Marking span with client send");
-      span.log("send"); // TODO define messages
+      span.log(Events.CLIENT_SEND);
       Tags.SPAN_KIND.set(span, Tags.SPAN_KIND_PRODUCER);
-      // TODO defined header name
-      messageBuilder.setHeader("messageSent", true);
+      messageBuilder.setHeader(Headers.MESSAGE_SENT_FROM_CLIENT, true);
     }
 
     spanLifecycleHelper.inject(span.context(), carrier);
@@ -112,8 +111,7 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     // TODO check server received and log send/receive events
 
     if (ex != null) {
-      // TODO define event type
-      activeSpan.log(Collections.singletonMap("error", ex.getMessage()));
+      activeSpan.log(Collections.singletonMap(Events.ERROR, ex.getMessage()));
     }
 
     log.trace("Closing messaging span " + activeSpan);
@@ -132,7 +130,7 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     if (activeSpan != null) {
       log.trace("Marking span with server received");
 
-      activeSpan.log("received"); // TODO define message
+      activeSpan.log(Events.SERVER_RECEIVE); // TODO define message
 
       log.trace(String.format("Span %s successfully continued", activeSpan));
     }
@@ -152,10 +150,10 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
 
     log.trace("Marking span with server send");
 
-    activeSpan.log("sent");
+    activeSpan.log(Events.SERVER_SEND);
 
     if (ex != null) {
-      activeSpan.log(Collections.singletonMap("error", ex.getMessage()));
+      activeSpan.log(Collections.singletonMap(Events.ERROR, ex.getMessage()));
     }
   }
 
