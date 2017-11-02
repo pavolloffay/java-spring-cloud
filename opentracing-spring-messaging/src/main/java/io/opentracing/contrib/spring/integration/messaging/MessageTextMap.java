@@ -19,50 +19,47 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.messaging.support.GenericMessage;
 import org.springframework.messaging.support.MessageHeaderAccessor;
-import org.springframework.messaging.support.NativeMessageHeaderAccessor;
-import org.springframework.util.StringUtils;
 
 /**
  * @author <a href="mailto:gytis@redhat.com">Gytis Trikleris</a>
  */
-public class MessageBuilderTextMap implements TextMap {
+public class MessageTextMap<T> implements TextMap {
 
-  private final MessageBuilder<?> delegate;
+  private final Message<T> message;
 
-  public MessageBuilderTextMap(MessageBuilder<?> delegate) {
-    this.delegate = delegate;
+  private final Map<String, String> headers;
+
+  public MessageTextMap(Message<T> message) {
+    this.message = message;
+    this.headers = extractStringHeaders(message);
   }
 
   @Override
   public Iterator<Map.Entry<String, String>> iterator() {
-    Map<String, String> map = new HashMap<>();
-    delegate.build()
-        .getHeaders()
-        .entrySet()
-        .parallelStream()
-        .forEach(e -> map.put(e.getKey(), String.valueOf(e.getValue())));
-
-    return map.entrySet()
+    return headers.entrySet()
         .iterator();
   }
 
   @Override
   public void put(String key, String value) {
-    if (!StringUtils.hasText(value)) {
-      return;
-    }
+    headers.put(key, value);
+  }
 
-    Message<?> initialMessage = this.delegate.build();
-    MessageHeaderAccessor accessor = MessageHeaderAccessor
-        .getMutableAccessor(initialMessage);
-    accessor.setHeader(key, value);
-    if (accessor instanceof NativeMessageHeaderAccessor) {
-      NativeMessageHeaderAccessor nativeAccessor = (NativeMessageHeaderAccessor) accessor;
-      nativeAccessor.setNativeHeader(key, value);
-    }
+  public Message<T> getMessage() {
+    MessageHeaderAccessor headerAccessor = MessageHeaderAccessor.getMutableAccessor(message);
+    headerAccessor.copyHeaders(headers);
 
-    delegate.copyHeaders(accessor.toMessageHeaders());
+    return new GenericMessage<>(message.getPayload(), headerAccessor.getMessageHeaders());
+  }
+
+  private Map<String, String> extractStringHeaders(Message<?> message) {
+    Map<String, Object> objectHeaders = message.getHeaders();
+    Map<String, String> stringHeaders = new HashMap<>(objectHeaders.size());
+
+    objectHeaders.forEach((k, v) -> stringHeaders.put(k, String.valueOf(v)));
+
+    return stringHeaders;
   }
 }

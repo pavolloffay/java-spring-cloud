@@ -30,7 +30,6 @@ import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -214,19 +213,81 @@ public class OpenTracingChannelInterceptorIT implements MessageHandler {
     then(mockTracer.finishedSpans()).hasSize(1);
     MockSpan span = mockTracer.finishedSpans()
         .get(0);
-    then(span.logEntries()).hasSize(2);
+    then(span.logEntries()).hasSize(3);
+    then(span.logEntries()
+        .get(0)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(0)
+        .fields()
+        .get("event")).isEqualTo(Events.CLIENT_SEND);
+    then(span.logEntries()
+        .get(1)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(1)
+        .fields()
+        .get("event")).isEqualTo(Events.CLIENT_RECEIVE);
+    then(span.logEntries()
+        .get(2)
+        .fields()).containsOnlyKeys("error");
+    then(span.logEntries()
+        .get(2)
+        .fields()
+        .get("error")).isEqualTo("A terrible exception has occurred");
   }
 
   @Test
-  @Ignore // TODO logging is not fully implemented
   public void shouldLogClientReceivedClientSentEventWhenTheMessageIsSentAndReceived() {
+    tracedChannel.send(MessageBuilder.withPayload("hi")
+        .build());
 
+    then(mockTracer.finishedSpans()).hasSize(1);
+    MockSpan span = mockTracer.finishedSpans()
+        .get(0);
+    then(span.logEntries()).hasSize(2);
+
+    then(span.logEntries()
+        .get(0)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(0)
+        .fields()
+        .get("event")).isEqualTo(Events.CLIENT_SEND);
+    then(span.logEntries()
+        .get(1)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(1)
+        .fields()
+        .get("event")).isEqualTo(Events.CLIENT_RECEIVE);
   }
 
   @Test
-  @Ignore // TODO logging is not fully implemented
   public void shouldLogServerReceivedServerSentEventWhenTheMessageIsPropagatedToTheNextListener() {
+    tracedChannel.send(MessageBuilder.withPayload("hi")
+        .setHeader(Headers.MESSAGE_SENT_FROM_CLIENT, true)
+        .build());
 
+    then(mockTracer.finishedSpans()).hasSize(1);
+    MockSpan span = mockTracer.finishedSpans()
+        .get(0);
+    then(span.logEntries()).hasSize(2);
+
+    then(span.logEntries()
+        .get(0)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(0)
+        .fields()
+        .get("event")).isEqualTo(Events.SERVER_RECEIVE);
+    then(span.logEntries()
+        .get(1)
+        .fields()).containsOnlyKeys("event");
+    then(span.logEntries()
+        .get(1)
+        .fields()
+        .get("event")).isEqualTo(Events.SERVER_SEND);
   }
 
   @Test
@@ -236,13 +297,13 @@ public class OpenTracingChannelInterceptorIT implements MessageHandler {
   }
 
   @Test
-  @Ignore // TODO
+  @Ignore // TODO channel name limit is not yet supported
   public void downgrades128bitIdsByDroppingHighBits() {
 
   }
 
   @Test
-  @Ignore // TODO
+  @Ignore // TODO header sanitation is not yet supported
   public void shouldNotBreakWhenInvalidHeadersAreSent() {
 
   }
@@ -278,21 +339,8 @@ public class OpenTracingChannelInterceptorIT implements MessageHandler {
 
     @Bean
     @GlobalChannelInterceptor
-    public OpenTracingChannelInterceptor openTracingChannelInterceptor(Tracer tracer,
-        SpanLifecycleHelper spanLifecycleHelper, MessageChannelHelper messageChannelHelper) {
-      return new OpenTracingChannelInterceptor(tracer, spanLifecycleHelper, messageChannelHelper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    SpanLifecycleHelper spanLifecycleHelper(Tracer tracer) {
-      return new SpanLifecycleHelper(tracer);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    MessageChannelHelper messageChannelHelper() {
-      return new MessageChannelHelper();
+    public OpenTracingChannelInterceptor openTracingChannelInterceptor(Tracer tracer) {
+      return new OpenTracingChannelInterceptor(tracer);
     }
 
   }

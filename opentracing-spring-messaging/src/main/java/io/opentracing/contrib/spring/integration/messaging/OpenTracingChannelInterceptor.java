@@ -17,19 +17,19 @@ package io.opentracing.contrib.spring.integration.messaging;
 import io.opentracing.ActiveSpan;
 import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
+import io.opentracing.propagation.Format;
 import io.opentracing.tag.Tags;
 import java.util.Collections;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.integration.channel.AbstractMessageChannel;
+import org.springframework.integration.context.IntegrationObjectSupport;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.support.ChannelInterceptorAdapter;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
-import org.springframework.messaging.support.GenericMessage;
-import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.util.ClassUtils;
 
 /**
  * @author <a href="mailto:gytis@redhat.com">Gytis Trikleris</a>
@@ -38,64 +38,47 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
 
   private static final Log log = LogFactory.getLog(OpenTracingChannelInterceptor.class);
 
+  private static final String COMPONENT_TAG = "spring-messaging";
+
   private static final String MESSAGE_COMPONENT = "message";
 
   private final Tracer tracer;
 
-  private final SpanLifecycleHelper spanLifecycleHelper;
-
-  private final MessageChannelHelper messageChannelHelper;
-
-  public OpenTracingChannelInterceptor(Tracer tracer, SpanLifecycleHelper spanLifecycleHelper,
-      MessageChannelHelper messageChannelHelper) {
+  public OpenTracingChannelInterceptor(Tracer tracer) {
     this.tracer = tracer;
-    this.spanLifecycleHelper = spanLifecycleHelper;
-    this.messageChannelHelper = messageChannelHelper;
   }
 
   @Override
   public Message<?> preSend(Message<?> message, MessageChannel channel) {
     log.trace("Processing message before sending it to the channel");
 
-    // This could be replaced by a headers map.
-    Message<?> sanitisedMessage = sanitiseMessage(message);
-    MessageBuilder<?> messageBuilder = MessageBuilder.fromMessage(sanitisedMessage);
-    MessageBuilderTextMap carrier = new MessageBuilderTextMap(messageBuilder);
-    SpanContext parentSpan = spanLifecycleHelper.getParent(carrier);
+    MessageTextMap<?> carrier = new MessageTextMap<>(message);
+    SpanContext parentSpan = tracer.extract(Format.Builtin.TEXT_MAP, carrier);
+    String operationName = getOperationName(channel);
+    ActiveSpan span = tracer.buildSpan(operationName)
+        .asChildOf(parentSpan)
+        .startActive();
 
-    log.trace(String.format("Parent span is %s", parentSpan));
-
-    String channelName = messageChannelHelper.getName(channel);
-    String operationName = String.format("%s:%s", MESSAGE_COMPONENT, channelName);
-
-    log.trace(String.format("Name of the span will be [%s]", operationName));
-
-    ActiveSpan span = spanLifecycleHelper.start(operationName, parentSpan);
-
-    Tags.COMPONENT.set(span, "spring-messaging");
-    Tags.MESSAGE_BUS_DESTINATION.set(span, channelName);
+    Tags.COMPONENT.set(span, COMPONENT_TAG);
+    Tags.MESSAGE_BUS_DESTINATION.set(span, getChannelName(channel));
 
     if (message.getHeaders()
         .containsKey(Headers.MESSAGE_SENT_FROM_CLIENT)) {
       log.trace("Marking span with server received");
-
       span.log(Events.SERVER_RECEIVE);
+      span.setBaggageItem(Events.SERVER_RECEIVE, Events.SERVER_RECEIVE);
       Tags.SPAN_KIND.set(span, Tags.SPAN_KIND_CONSUMER);
+      // TODO maybe we should remove Headers.MESSAGE_SENT_FROM_CLIENT header here?
     } else {
       log.trace("Marking span with client send");
       span.log(Events.CLIENT_SEND);
       Tags.SPAN_KIND.set(span, Tags.SPAN_KIND_PRODUCER);
-      messageBuilder.setHeader(Headers.MESSAGE_SENT_FROM_CLIENT, true);
+      carrier.put(Headers.MESSAGE_SENT_FROM_CLIENT, "true");
     }
 
-    spanLifecycleHelper.inject(span.context(), carrier);
+    tracer.inject(span.context(), Format.Builtin.TEXT_MAP, carrier);
 
-    MessageHeaderAccessor headers = MessageHeaderAccessor.getMutableAccessor(message);
-    headers.copyHeaders(messageBuilder.build()
-        .getHeaders());
-
-    // TODO why not recreated a message using builder?
-    return new GenericMessage<>(message.getPayload(), headers.getMessageHeaders());
+    return carrier.getMessage();
   }
 
   @Override
@@ -108,30 +91,32 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
       return;
     }
 
-    // TODO check server received and log send/receive events
+    if (activeSpan.getBaggageItem(Events.SERVER_RECEIVE) != null) {
+      log.trace("Marking span with server send");
+      activeSpan.log(Events.SERVER_SEND);
+    } else {
+      log.debug("Marking span with client received");
+      activeSpan.log(Events.CLIENT_RECEIVE);
+    }
 
     if (ex != null) {
       activeSpan.log(Collections.singletonMap(Events.ERROR, ex.getMessage()));
     }
 
     log.trace("Closing messaging span " + activeSpan);
-
-    activeSpan.close(); // TODO is Span#finish() needed?
-
+    activeSpan.close();
     log.trace(String.format("Messaging span %s successfully closed", activeSpan));
   }
 
   @Override
   public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
-    ActiveSpan activeSpan = tracer.activeSpan(); // TODO should probably check message headers
+    ActiveSpan activeSpan = tracer.activeSpan();
 
     log.trace(String.format("Continuing span %s before handling message", activeSpan));
 
     if (activeSpan != null) {
       log.trace("Marking span with server received");
-
-      activeSpan.log(Events.SERVER_RECEIVE); // TODO define message
-
+      activeSpan.log(Events.SERVER_RECEIVE);
       log.trace(String.format("Span %s successfully continued", activeSpan));
     }
 
@@ -149,7 +134,6 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     }
 
     log.trace("Marking span with server send");
-
     activeSpan.log(Events.SERVER_SEND);
 
     if (ex != null) {
@@ -157,15 +141,28 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     }
   }
 
-  private Message<?> sanitiseMessage(Message<?> message) {
-    Object payload = message.getPayload();
-
-    if (payload instanceof MessagingException) {
-      MessagingException e = (MessagingException) payload;
-      return e.getFailedMessage();
+  private String getChannelName(MessageChannel messageChannel) {
+    String name = null;
+    if (ClassUtils.isPresent("org.springframework.integration.context.IntegrationObjectSupport", null)) {
+      if (messageChannel instanceof IntegrationObjectSupport) {
+        name = ((IntegrationObjectSupport) messageChannel).getComponentName();
+      }
+      if (name == null && messageChannel instanceof AbstractMessageChannel) {
+        name = ((AbstractMessageChannel) messageChannel).getFullChannelName();
+      }
     }
 
-    return message;
+    if (name == null) {
+      return messageChannel.toString();
+    }
+
+    return name;
+  }
+
+  private String getOperationName(MessageChannel messageChannel) {
+    String channelName = getChannelName(messageChannel);
+
+    return String.format("%s:%s", MESSAGE_COMPONENT, channelName);
   }
 
 }
