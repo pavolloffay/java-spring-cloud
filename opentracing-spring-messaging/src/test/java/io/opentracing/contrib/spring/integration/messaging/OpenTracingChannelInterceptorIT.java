@@ -21,6 +21,7 @@ import static org.assertj.core.api.BDDAssertions.then;
 import io.opentracing.Tracer;
 import io.opentracing.mock.MockSpan;
 import io.opentracing.mock.MockTracer;
+import io.opentracing.tag.Tags;
 import io.opentracing.util.ThreadLocalActiveSpanSource;
 import org.junit.After;
 import org.junit.Before;
@@ -213,7 +214,7 @@ public class OpenTracingChannelInterceptorIT implements MessageHandler {
     then(mockTracer.finishedSpans()).hasSize(1);
     MockSpan span = mockTracer.finishedSpans()
         .get(0);
-    then(span.logEntries()).hasSize(3);
+    then(span.logEntries()).hasSize(2);
     then(span.logEntries()
         .get(0)
         .fields()).containsOnlyKeys("event");
@@ -228,13 +229,9 @@ public class OpenTracingChannelInterceptorIT implements MessageHandler {
         .get(1)
         .fields()
         .get("event")).isEqualTo(Events.CLIENT_RECEIVE);
-    then(span.logEntries()
-        .get(2)
-        .fields()).containsOnlyKeys("error");
-    then(span.logEntries()
-        .get(2)
-        .fields()
-        .get("error")).isEqualTo("A terrible exception has occurred");
+    then(span.tags()).hasSize(4);
+    then(span.tags().get(Tags.ERROR.getKey()))
+        .isEqualTo(true);
   }
 
   @Test

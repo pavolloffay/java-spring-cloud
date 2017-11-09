@@ -14,6 +14,7 @@
 
 package io.opentracing.contrib.spring.integration.messaging;
 
+import static io.opentracing.contrib.spring.integration.messaging.OpenTracingChannelInterceptor.COMPONENT_NAME;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyMap;
@@ -28,7 +29,6 @@ import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
 import io.opentracing.propagation.Format;
 import io.opentracing.tag.Tags;
-import java.util.Collections;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -71,6 +71,7 @@ public class OpenTracingChannelInterceptorTest {
     when(mockTracer.buildSpan(anyString())).thenReturn(mockSpanBuilder);
     when(mockSpanBuilder.asChildOf(any(SpanContext.class))).thenReturn(mockSpanBuilder);
     when(mockSpanBuilder.startActive()).thenReturn(mockActiveSpan);
+    when(mockSpanBuilder.withTag(anyString(), anyString())).thenReturn(mockSpanBuilder);
     when(mockActiveSpan.context()).thenReturn(mockSpanContext);
 
     interceptor = new OpenTracingChannelInterceptor(mockTracer);
@@ -81,7 +82,7 @@ public class OpenTracingChannelInterceptorTest {
   @Test
   public void preSendShouldGetNameFromGenericChannel() {
     interceptor.preSend(simpleMessage, mockMessageChannel);
-    verify(mockTracer).buildSpan(String.format("message:%s", mockMessageChannel.toString()));
+    verify(mockTracer).buildSpan(String.format("send:%s", mockMessageChannel.toString()));
   }
 
   @Test
@@ -97,12 +98,12 @@ public class OpenTracingChannelInterceptorTest {
     assertThat(message.getHeaders()).containsKey(Headers.MESSAGE_SENT_FROM_CLIENT);
 
     verify(mockTracer).extract(eq(Format.Builtin.TEXT_MAP), any(MessageTextMap.class));
-    verify(mockTracer).buildSpan(String.format("message:%s", mockMessageChannel.toString()));
+    verify(mockTracer).buildSpan(String.format("send:%s", mockMessageChannel.toString()));
     verify(mockSpanBuilder).asChildOf((SpanContext) null);
     verify(mockSpanBuilder).startActive();
-    verify(mockActiveSpan).setTag(Tags.COMPONENT.getKey(), "spring-messaging");
-    verify(mockActiveSpan).setTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
-    verify(mockActiveSpan).setTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_PRODUCER);
+    verify(mockSpanBuilder).withTag(Tags.COMPONENT.getKey(), COMPONENT_NAME);
+    verify(mockSpanBuilder).withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
+    verify(mockSpanBuilder).withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_PRODUCER);
     verify(mockActiveSpan).log(Events.CLIENT_SEND);
   }
 
@@ -115,12 +116,12 @@ public class OpenTracingChannelInterceptorTest {
     assertThat(message.getPayload()).isEqualTo(originalMessage.getPayload());
 
     verify(mockTracer).extract(eq(Format.Builtin.TEXT_MAP), any(MessageTextMap.class));
-    verify(mockTracer).buildSpan(String.format("message:%s", mockMessageChannel.toString()));
+    verify(mockTracer).buildSpan(String.format("receive:%s", mockMessageChannel.toString()));
     verify(mockSpanBuilder).asChildOf((SpanContext) null);
     verify(mockSpanBuilder).startActive();
-    verify(mockActiveSpan).setTag(Tags.COMPONENT.getKey(), "spring-messaging");
-    verify(mockActiveSpan).setTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
-    verify(mockActiveSpan).setTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_CONSUMER);
+    verify(mockSpanBuilder).withTag(Tags.COMPONENT.getKey(), COMPONENT_NAME);
+    verify(mockSpanBuilder).withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
+    verify(mockSpanBuilder).withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_CONSUMER);
     verify(mockActiveSpan).log(Events.SERVER_RECEIVE);
   }
 
@@ -143,10 +144,11 @@ public class OpenTracingChannelInterceptorTest {
 
   @Test
   public void afterSendCompletionShouldFinishSpanForServerSendMessage() {
+    Message<?> message = MessageBuilder.fromMessage(simpleMessage)
+        .setHeader(Headers.MESSAGE_CONSUMED, true)
+        .build();
     when(mockTracer.activeSpan()).thenReturn(mockActiveSpan);
-    when(mockActiveSpan.getBaggageItem(Events.SERVER_RECEIVE)).thenReturn(Events.SERVER_RECEIVE);
-
-    interceptor.afterSendCompletion(null, null, true, null);
+    interceptor.afterSendCompletion(message, null, true, null);
 
     verify(mockTracer).activeSpan();
     verify(mockActiveSpan).log(Events.SERVER_SEND);
@@ -158,7 +160,7 @@ public class OpenTracingChannelInterceptorTest {
   public void afterSendCompletionShouldFinishSpanForClientSendMessage() {
     when(mockTracer.activeSpan()).thenReturn(mockActiveSpan);
 
-    interceptor.afterSendCompletion(null, null, true, null);
+    interceptor.afterSendCompletion(simpleMessage, null, true, null);
 
     verify(mockTracer).activeSpan();
     verify(mockActiveSpan).log(Events.CLIENT_RECEIVE);
@@ -169,12 +171,11 @@ public class OpenTracingChannelInterceptorTest {
   @Test
   public void afterSendCompletionShouldFinishSpanForException() {
     when(mockTracer.activeSpan()).thenReturn(mockActiveSpan);
-
-    interceptor.afterSendCompletion(null, null, true, new Exception("test"));
+    interceptor.afterSendCompletion(simpleMessage, null, true, new Exception("test"));
 
     verify(mockTracer).activeSpan();
     verify(mockActiveSpan).log(Events.CLIENT_RECEIVE);
-    verify(mockActiveSpan).log(Collections.singletonMap(Events.ERROR, "test"));
+    verify(mockActiveSpan).setTag(Tags.ERROR.getKey(), true);
     verify(mockActiveSpan).close();
   }
 
@@ -208,7 +209,7 @@ public class OpenTracingChannelInterceptorTest {
   public void afterMessageHandledShouldLogEvent() {
     when(mockTracer.activeSpan()).thenReturn(mockActiveSpan);
 
-    interceptor.afterMessageHandled(null, null, null, null);
+    interceptor.afterMessageHandled(simpleMessage, null, null, null);
 
     verify(mockTracer).activeSpan();
     verify(mockActiveSpan).log(Events.SERVER_SEND);
@@ -223,7 +224,7 @@ public class OpenTracingChannelInterceptorTest {
 
     verify(mockTracer).activeSpan();
     verify(mockActiveSpan).log(Events.SERVER_SEND);
-    verify(mockActiveSpan).log(Collections.singletonMap(Events.ERROR, "test"));
+    verify(mockActiveSpan).setTag(Tags.ERROR.getKey(), true);
   }
 
 }
