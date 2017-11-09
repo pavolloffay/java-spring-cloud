@@ -16,8 +16,10 @@ package io.opentracing.contrib.spring.integration.messaging;
 
 import io.opentracing.ActiveSpan;
 import io.opentracing.BaseSpan;
+import io.opentracing.References;
 import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
+import io.opentracing.Tracer.SpanBuilder;
 import io.opentracing.propagation.Format;
 import io.opentracing.tag.Tags;
 import org.apache.commons.logging.Log;
@@ -39,15 +41,6 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
 
   static final String COMPONENT_NAME = "spring-messaging";
 
-  protected enum Operation {
-    SEND,
-    RECEIVE;
-    @Override
-    public String toString() {
-      return name().toLowerCase();
-    }
-  }
-
   private final Tracer tracer;
 
   public OpenTracingChannelInterceptor(Tracer tracer) {
@@ -57,27 +50,29 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
   @Override
   public Message<?> preSend(Message<?> message, MessageChannel channel) {
     log.trace("Processing message before sending it to the channel");
-
     boolean isConsumer = message.getHeaders().containsKey(Headers.MESSAGE_SENT_FROM_CLIENT);
 
-    /**
-     * TODO consider active span as a parent for producer requests
-     * TODO consumer should be probably followsFrom and not childOf
-     */
-    MessageTextMap<?> carrier = new MessageTextMap<>(message);
-    SpanContext parentSpan = tracer.extract(Format.Builtin.TEXT_MAP, carrier);
-    ActiveSpan span = tracer.buildSpan(getOperationName(channel, isConsumer ? Operation.RECEIVE : Operation.SEND))
-        .asChildOf(parentSpan)
+    SpanBuilder spanBuilder = tracer.buildSpan(getOperationName(channel, isConsumer))
         .withTag(Tags.SPAN_KIND.getKey(), isConsumer ? Tags.SPAN_KIND_CONSUMER : Tags.SPAN_KIND_PRODUCER)
         .withTag(Tags.COMPONENT.getKey(), COMPONENT_NAME)
-        .withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), getChannelName(channel))
-        .startActive();
+        .withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), getChannelName(channel));
+
+    MessageTextMap<?> carrier = new MessageTextMap<>(message);
+    SpanContext extractedContext = tracer.extract(Format.Builtin.TEXT_MAP, carrier);
+    if (isConsumer) {
+      spanBuilder.addReference(References.FOLLOWS_FROM, extractedContext);
+    } else if (tracer.activeSpan() == null) {
+      // it's a client but active span is null
+      // This is a fallback we try to add extractedContext in case there is something
+      spanBuilder.asChildOf(extractedContext);
+    }
+
+    ActiveSpan span = spanBuilder.startActive();
 
     if (isConsumer) {
       log.trace("Marking span with server received");
       span.log(Events.SERVER_RECEIVE);
-      // TODO do not use baggage
-      carrier.put(Headers.MESSAGE_CONSUMED, String.valueOf(true));
+      carrier.put(Headers.MESSAGE_CONSUMED, "true");
       // TODO maybe we should remove Headers.MESSAGE_SENT_FROM_CLIENT header here?
     } else {
       log.trace("Marking span with client send");
@@ -175,8 +170,8 @@ public class OpenTracingChannelInterceptor extends ChannelInterceptorAdapter imp
     return name;
   }
 
-  protected String getOperationName(MessageChannel messageChannel, Operation operation) {
+  protected String getOperationName(MessageChannel messageChannel, boolean isConsumer) {
     String channelName = getChannelName(messageChannel);
-    return String.format("%s:%s", operation, channelName);
+    return String.format("%s:%s", isConsumer ? "receive" : "send", channelName);
   }
 }

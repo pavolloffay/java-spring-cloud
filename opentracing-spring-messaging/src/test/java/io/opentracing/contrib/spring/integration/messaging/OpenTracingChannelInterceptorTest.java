@@ -25,6 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.opentracing.ActiveSpan;
+import io.opentracing.References;
 import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
 import io.opentracing.propagation.Format;
@@ -97,9 +98,7 @@ public class OpenTracingChannelInterceptorTest {
     assertThat(message.getPayload()).isEqualTo(simpleMessage.getPayload());
     assertThat(message.getHeaders()).containsKey(Headers.MESSAGE_SENT_FROM_CLIENT);
 
-    verify(mockTracer).extract(eq(Format.Builtin.TEXT_MAP), any(MessageTextMap.class));
     verify(mockTracer).buildSpan(String.format("send:%s", mockMessageChannel.toString()));
-    verify(mockSpanBuilder).asChildOf((SpanContext) null);
     verify(mockSpanBuilder).startActive();
     verify(mockSpanBuilder).withTag(Tags.COMPONENT.getKey(), COMPONENT_NAME);
     verify(mockSpanBuilder).withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
@@ -117,21 +116,12 @@ public class OpenTracingChannelInterceptorTest {
 
     verify(mockTracer).extract(eq(Format.Builtin.TEXT_MAP), any(MessageTextMap.class));
     verify(mockTracer).buildSpan(String.format("receive:%s", mockMessageChannel.toString()));
-    verify(mockSpanBuilder).asChildOf((SpanContext) null);
+    verify(mockSpanBuilder).addReference(References.FOLLOWS_FROM, null);
     verify(mockSpanBuilder).startActive();
     verify(mockSpanBuilder).withTag(Tags.COMPONENT.getKey(), COMPONENT_NAME);
     verify(mockSpanBuilder).withTag(Tags.MESSAGE_BUS_DESTINATION.getKey(), mockMessageChannel.toString());
     verify(mockSpanBuilder).withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_CONSUMER);
     verify(mockActiveSpan).log(Events.SERVER_RECEIVE);
-  }
-
-  @Test
-  public void preSendShouldStartChildSpanFromCarrier() {
-    when(mockTracer.extract(eq(Format.Builtin.TEXT_MAP), any(MessageTextMap.class))).thenReturn(mockSpanContext);
-
-    interceptor.preSend(simpleMessage, mockMessageChannel);
-
-    verify(mockSpanBuilder).asChildOf(mockSpanContext);
   }
 
   @Test
