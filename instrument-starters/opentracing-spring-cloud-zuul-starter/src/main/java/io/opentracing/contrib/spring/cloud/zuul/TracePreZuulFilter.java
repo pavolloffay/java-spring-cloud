@@ -18,7 +18,7 @@ import com.netflix.zuul.context.RequestContext;
 import io.opentracing.Span;
 import io.opentracing.Tracer;
 import io.opentracing.propagation.Format;
-import io.opentracing.propagation.TextMapInjectAdapter;
+import io.opentracing.propagation.TextMapAdapter;
 import io.opentracing.tag.Tags;
 
 class TracePreZuulFilter extends ZuulFilter {
@@ -58,7 +58,7 @@ class TracePreZuulFilter extends ZuulFilter {
         .start();
 
     tracer.inject(span.context(), Format.Builtin.HTTP_HEADERS,
-        new TextMapInjectAdapter(ctx.getZuulRequestHeaders()));
+        new TextMapAdapter(ctx.getZuulRequestHeaders()));
 
     ctx.set(CONTEXT_SPAN_KEY, span);
 
