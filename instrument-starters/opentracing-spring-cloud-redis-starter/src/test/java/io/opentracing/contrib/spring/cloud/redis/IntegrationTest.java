@@ -1,5 +1,5 @@
 /**
- * Copyright 2017-2018 The OpenTracing Authors
+ * Copyright 2017-2019 The OpenTracing Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License. You may obtain a copy of the License at
@@ -97,10 +97,13 @@ public class IntegrationTest {
 
   @Test
   public void spanJoinsActiveSpan() {
-    try (Scope ignored = tracer.buildSpan("parent").startActive(true)) {
+    MockSpan span = tracer.buildSpan("parent").start();
+    try (Scope ignored = tracer.activateSpan(span)) {
       redisTemplate.opsForList().leftPushAll("test-list", 1, 2, 3);
       assertEquals(1, tracer.finishedSpans().size());
       assertEquals("LPUSH", tracer.finishedSpans().get(0).tags().get("command"));
+    } finally {
+      span.finish();
     }
 
     assertEquals(2, tracer.finishedSpans().size());
